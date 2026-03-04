@@ -6,13 +6,16 @@ import threading
 import random
 from supabase import create_client
 
-# ================== ENV VARIABLES ==================
+# ================= ENV =================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
-FORCE_CHANNEL = os.getenv("FORCE_CHANNEL")
-
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+FORCE_CHANNELS = [
+    os.getenv("FORCE_CHANNEL_1"),
+    os.getenv("FORCE_CHANNEL_2")
+]
 
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN missing")
@@ -23,13 +26,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 DOWNLOAD_FOLDER = "downloads"
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
-USER_AGENTS = [
-    "Mozilla/5.0 (Linux; Android 11)",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)"
-]
-
-# ================== KEYBOARD ==================
+# ================= MENU =================
 def main_menu():
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
     kb.add(KeyboardButton("🎬 Download Video"), KeyboardButton("🎵 Download MP3"))
@@ -37,30 +34,40 @@ def main_menu():
     kb.add(KeyboardButton("📊 My Stats"), KeyboardButton("ℹ️ Help"))
     return kb
 
-# ================== FORCE JOIN ==================
+# ================= FORCE JOIN (2 CHANNELS) =================
 def is_joined(uid):
-    try:
-        status = bot.get_chat_member(FORCE_CHANNEL, uid).status
-        return status in ["member", "administrator", "creator"]
-    except:
-        return False
+    for channel in FORCE_CHANNELS:
+        try:
+            status = bot.get_chat_member(channel, uid).status
+            if status not in ["member", "administrator", "creator"]:
+                return False
+        except:
+            return False
+    return True
 
-# ================== SUPABASE FUNCTIONS ==================
+# ================= SUPABASE =================
 def get_user(uid):
     data = supabase.table("users").select("*").eq("user_id", uid).execute().data
     return data[0] if data else None
 
 def add_user(uid, ref=None):
-    if not get_user(uid):
-        supabase.table("users").insert({
-            "user_id": uid,
-            "downloads_left": 2,
-            "referred_by": ref
-        }).execute()
+    user = get_user(uid)
+    if user:
+        return
 
-        if ref:
+    supabase.table("users").insert({
+        "user_id": uid,
+        "downloads_left": 2,
+        "referred_by": ref if ref != uid else None
+    }).execute()
+
+    if ref and ref != uid:
+        ref_user = get_user(ref)
+        if ref_user:
+            new_downloads = ref_user["downloads_left"] + 1
+
             supabase.table("users").update({
-                "downloads_left": supabase.rpc("increment", {"x": 1})
+                "downloads_left": new_downloads
             }).eq("user_id", ref).execute()
 
             supabase.table("referrals").insert({
@@ -86,7 +93,7 @@ def get_leaderboard():
         .execute().data
     return data
 
-# ================== FORMAT SAFE ==================
+# ================= FORMAT =================
 def get_format(q):
     if q == "mp3":
         return "bestaudio/best"
@@ -95,20 +102,27 @@ def get_format(q):
     elif q == "1080":
         return "bestvideo[height<=1080]/best"
 
-# ================== START ==================
+# ================= START =================
 @bot.message_handler(commands=["start"])
 def start(message):
     uid = message.from_user.id
     args = message.text.split()
-    ref = int(args[1]) if len(args) > 1 else None
+
+    ref = None
+    if len(args) > 1:
+        try:
+            ref = int(args[1])
+        except:
+            ref = None
 
     add_user(uid, ref)
 
     if not is_joined(uid):
         kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{FORCE_CHANNEL[1:]}"))
+        kb.add(InlineKeyboardButton("📢 Join Channel 1", url=f"https://t.me/{FORCE_CHANNELS[0][1:]}"))
+        kb.add(InlineKeyboardButton("📢 Join Channel 2", url=f"https://t.me/{FORCE_CHANNELS[1][1:]}"))
         kb.add(InlineKeyboardButton("✅ I Joined", callback_data="joined"))
-        bot.send_message(uid, "⚠️ Join our channel to use the bot", reply_markup=kb)
+        bot.send_message(uid, "⚠️ Join *both* channels to use the bot", reply_markup=kb)
         return
 
     user = get_user(uid)
@@ -120,22 +134,22 @@ def start(message):
 ⚡ Choose format  
 📥 Download instantly  
 
-📊 Daily downloads left: *{user['downloads_left']}*
+📊 Downloads left today: *{user['downloads_left']}*
 
-👥 Refer & Earn +1 download:
+👥 Refer & Earn +1:
 https://t.me/{bot.get_me().username}?start={uid}
 """
     bot.send_message(uid, text, reply_markup=main_menu())
 
-# ================== JOIN CALLBACK ==================
+# ================= JOIN CALLBACK =================
 @bot.callback_query_handler(func=lambda call: call.data == "joined")
 def joined(call):
     if is_joined(call.from_user.id):
         bot.send_message(call.from_user.id, "✅ Verified!", reply_markup=main_menu())
     else:
-        bot.answer_callback_query(call.id, "Join channel first!")
+        bot.answer_callback_query(call.id, "Please join both channels first!")
 
-# ================== MENU BUTTONS ==================
+# ================= MENU BUTTONS =================
 @bot.message_handler(func=lambda m: m.text == "🎬 Download Video")
 def video_btn(m):
     bot.send_message(m.chat.id, "📥 Send YouTube link")
@@ -173,7 +187,7 @@ Referrals: {refs}
 def help_btn(m):
     bot.send_message(m.chat.id, "Send any YouTube link and choose MP3 / 720p / 1080p.")
 
-# ================== LINK HANDLER ==================
+# ================= LINK =================
 @bot.message_handler(func=lambda m: "youtu" in m.text)
 def link_handler(m):
     uid = m.from_user.id
@@ -191,13 +205,13 @@ def link_handler(m):
     )
     bot.send_message(uid, "👇 Select format:", reply_markup=kb)
 
-# ================== DOWNLOAD ==================
+# ================= DOWNLOAD =================
 @bot.callback_query_handler(func=lambda call: "|" in call.data)
 def download(call):
     uid = call.from_user.id
     quality, url = call.data.split("|")
 
-    msg = bot.send_message(uid, "⬇ Downloading...")
+    bot.send_message(uid, "⬇ Downloading...")
 
     def run():
         try:
@@ -208,7 +222,11 @@ def download(call):
                 "cookiefile": "cookies.txt",
                 "noplaylist": True,
                 "quiet": True,
-                "headers": {"User-Agent": random.choice(USER_AGENTS)}
+                "headers": {"User-Agent": random.choice([
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                    "Mozilla/5.0 (Linux; Android 11)",
+                    "Mozilla/5.0 (iPhone)"
+                ])}
             }
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
