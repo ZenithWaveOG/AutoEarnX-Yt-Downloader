@@ -1,4 +1,4 @@
-import os, time, threading
+import os, time, threading, random
 import yt_dlp
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -20,6 +20,12 @@ DOWNLOAD_FOLDER = "downloads"
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
 DAILY_LIMIT = 2
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Linux; Android 11)",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+]
 
 # ---------------- DATABASE ----------------
 def get_user(uid):
@@ -87,10 +93,10 @@ def start(message):
 🎬 Send any YouTube link  
 ⚡ I will download it for you  
 
-📥 Formats Supported:
-• 🎵 MP3 Audio  
-• 🎬 720p Video  
-• 🎥 1080p Video  
+📥 Formats:
+🎵 MP3  
+🎬 720p  
+🎥 1080p  
 
 📊 Daily Limit: *2 Downloads*  
 👥 Refer & Earn +1 Download:
@@ -98,7 +104,7 @@ def start(message):
 https://t.me/{bot.get_me().username}?start={uid}
 
 🏆 /leaderboard – Top Referrers  
-📢 /broadcast – Admin only  
+📢 /broadcast – Admin  
 👑 /admin – Stats
 """
     bot.send_message(uid, text, parse_mode="Markdown")
@@ -164,7 +170,17 @@ def download_process(call, quality, url):
         "format": "bestaudio" if quality == "mp3" else f"bestvideo[height<={quality}]+bestaudio",
         "merge_output_format": "mp4",
         "progress_hooks": [lambda d: progress_hook(d, uid, msg.message_id)],
-        "quiet": True
+        "cookiefile": "cookies.txt",
+        "noplaylist": True,
+        "quiet": True,
+        "headers": {
+            "User-Agent": random.choice(USER_AGENTS)
+        },
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android"]
+            }
+        }
     }
 
     try:
@@ -188,7 +204,7 @@ def download_process(call, quality, url):
         }).eq("user_id", uid).execute()
 
     except Exception as e:
-        bot.send_message(uid, f"❌ Error: {e}")
+        bot.send_message(uid, f"❌ Download failed:\n{e}")
 
 @bot.callback_query_handler(func=lambda c: "|" in c.data)
 def callback(call):
