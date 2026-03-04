@@ -71,27 +71,42 @@ def start(message):
 
     if not is_joined(uid):
         kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("Join Channel", url=f"https://t.me/{FORCE_CHANNEL[1:]}"))
-        kb.add(InlineKeyboardButton("Joined ✅", callback_data="joined"))
-        bot.send_message(uid, "⚠ Please join channel to use bot", reply_markup=kb)
+        kb.add(InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{FORCE_CHANNEL[1:]}"))
+        kb.add(InlineKeyboardButton("✅ I Joined", callback_data="joined"))
+        bot.send_message(
+            uid,
+            "⚠️ *Join our channel to use AutoEarnX Bot*",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
         return
 
-    bot.send_message(uid, f"""
-👋 AutoEarnX v3.0 Ready
+    text = f"""
+✨ *Welcome to AutoEarnX v3.0* ✨
 
-Send YouTube link 🎬
+🎬 Send any YouTube link  
+⚡ I will download it for you  
 
-Daily limit: 2 downloads  
-Refer & get +1 per user 👇
+📥 Formats Supported:
+• 🎵 MP3 Audio  
+• 🎬 720p Video  
+• 🎥 1080p Video  
+
+📊 Daily Limit: *2 Downloads*  
+👥 Refer & Earn +1 Download:
+
 https://t.me/{bot.get_me().username}?start={uid}
 
-/leaderboard - Top referrals
-""")
+🏆 /leaderboard – Top Referrers  
+📢 /broadcast – Admin only  
+👑 /admin – Stats
+"""
+    bot.send_message(uid, text, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda c: c.data == "joined")
 def joined(call):
     if is_joined(call.from_user.id):
-        bot.send_message(call.message.chat.id, "✅ Access granted! Send link.")
+        bot.send_message(call.message.chat.id, "✅ Access granted! Send YouTube link.")
     else:
         bot.answer_callback_query(call.id, "Join channel first!")
 
@@ -99,10 +114,10 @@ def joined(call):
 @bot.message_handler(commands=["leaderboard"])
 def leaderboard(message):
     data = supabase.table("users").select("*").order("referrals", desc=True).limit(10).execute().data
-    text = "🏆 Referral Leaderboard\n\n"
+    text = "🏆 *Referral Leaderboard*\n\n"
     for i, u in enumerate(data, 1):
-        text += f"{i}. {u['user_id']} ➜ {u['referrals']} referrals\n"
-    bot.send_message(message.chat.id, text)
+        text += f"{i}. `{u['user_id']}` ➜ {u['referrals']} referrals\n"
+    bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
 # ---------------- LINK HANDLER ----------------
 @bot.message_handler(func=lambda m: m.text and "youtu" in m.text)
@@ -115,20 +130,27 @@ def link_handler(message):
         bot.send_message(uid, "❌ Daily limit reached.\nRefer 1 user to unlock more downloads.")
         return
 
-    kb = InlineKeyboardMarkup()
+    kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
-        InlineKeyboardButton("🎵 MP3", callback_data=f"mp3|{message.text}"),
-        InlineKeyboardButton("🎬 720p", callback_data=f"720|{message.text}"),
-        InlineKeyboardButton("🎥 1080p", callback_data=f"1080|{message.text}")
+        InlineKeyboardButton("🎵 MP3 Audio", callback_data=f"mp3|{message.text}"),
+        InlineKeyboardButton("🎬 720p Video", callback_data=f"720|{message.text}"),
+        InlineKeyboardButton("🎥 1080p Video", callback_data=f"1080|{message.text}")
     )
-    bot.send_message(uid, "Choose format:", reply_markup=kb)
+    bot.send_message(uid, "👇 *Select download format:*", reply_markup=kb, parse_mode="Markdown")
 
-# ---------------- PROGRESS ----------------
+# ---------------- PROGRESS BAR ----------------
 def progress_hook(d, chat_id, msg_id):
     if d["status"] == "downloading":
-        percent = d["_percent_str"]
+        percent = d.get("_percent_str", "")
+        speed = d.get("_speed_str", "")
+        eta = d.get("_eta_str", "")
         try:
-            bot.edit_message_text(f"⬇ Downloading... {percent}", chat_id, msg_id)
+            bot.edit_message_text(
+                f"⬇ *Downloading...*\n\n📊 {percent}\n⚡ {speed}\n⏳ ETA: {eta}",
+                chat_id,
+                msg_id,
+                parse_mode="Markdown"
+            )
         except:
             pass
 
@@ -141,7 +163,8 @@ def download_process(call, quality, url):
         "outtmpl": f"{DOWNLOAD_FOLDER}/%(title)s.%(ext)s",
         "format": "bestaudio" if quality == "mp3" else f"bestvideo[height<={quality}]+bestaudio",
         "merge_output_format": "mp4",
-        "progress_hooks": [lambda d: progress_hook(d, uid, msg.message_id)]
+        "progress_hooks": [lambda d: progress_hook(d, uid, msg.message_id)],
+        "quiet": True
     }
 
     try:
